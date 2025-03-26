@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { useScreenTime } from "@/context/screen-time-context"
+import { useScreenTime, type TimeEntry } from "@/context/screen-time-context"
 import TimeTracker from "@/components/time-tracker"
 import GoalSetting from "@/components/goal-setting"
 import UsageStats from "@/components/usage-stats"
@@ -20,13 +20,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { toast } from "sonner"
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("track")
-  const { entries, goals, getTodayUsage, deleteEntry } = useScreenTime()
+  const { entries, goals, getTodayUsage, deleteEntry, addEntry } = useScreenTime()
   const [anyGoalReached, setAnyGoalReached] = useState(false)
-  const [entryToDelete, setEntryToDelete] = useState<string | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [entryToDelete, setEntryToDelete] = useState<string | null>(null)
+  const deletedEntryRef = useRef<TimeEntry | null>(null)
 
   const todayTotal = getTodayUsage()
   const todayDate = new Date().toISOString().split("T")[0]
@@ -72,20 +74,69 @@ export default function Dashboard() {
     .slice(0, 5) // Get the 5 most recent entries
 
   const handleDeleteClick = (id: string) => {
-    setEntryToDelete(id)
-    setIsDeleteDialogOpen(true)
+    const entry = entries.find((e) => e.id === id)
+    if (entry) {
+      deletedEntryRef.current = { ...entry }
+      setEntryToDelete(id)
+      setIsDeleteDialogOpen(true)
+    }
   }
 
   const confirmDelete = () => {
-    if (entryToDelete) {
+    if (entryToDelete && deletedEntryRef.current) {
+      const entryCopy = { ...deletedEntryRef.current }
       deleteEntry(entryToDelete)
+
+      // Show toast with undo option
+      toast.info("Activity deleted", {
+        description: getEntryDescription(entryCopy),
+        action: {
+          label: "Undo",
+          onClick: () => {
+            // Add the entry back
+            addEntry({
+              date: entryCopy.date,
+              app: entryCopy.app,
+              category: entryCopy.category,
+              device: entryCopy.device,
+              duration: entryCopy.duration,
+              notes: entryCopy.notes,
+            })
+            toast.success("Activity restored")
+          },
+        },
+        duration: 5000,
+      })
+
       setEntryToDelete(null)
     }
     setIsDeleteDialogOpen(false)
   }
 
+  const getEntryDescription = (entry: TimeEntry | null) => {
+    if (!entry) return ""
+
+    return `${entry.app} (${Math.floor(entry.duration / 60)}h ${entry.duration % 60}m) - ${entry.category}`
+  }
+
   return (
     <div className="container mx-auto py-6 space-y-8">
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Activity</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this activity? This action can be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setEntryToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <header className="flex flex-col space-y-2 md:flex-row md:justify-between md:items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Screen Time Tracker</h1>
@@ -105,20 +156,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </header>
-
-      {/* Delete confirmation dialog */}
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete entry?</AlertDialogTitle>
-            <AlertDialogDescription>This will permanently remove this entry from your records.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setEntryToDelete(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="grid grid-cols-3 w-full md:w-[400px]">
